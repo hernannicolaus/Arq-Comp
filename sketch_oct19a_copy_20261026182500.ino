@@ -1,16 +1,11 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
-#include <Wire.h>
-#include <LiquidCrystal_I2C.h>
 
 // ================= PINES (SIN CONFLICTO) =================
 const int PIN_BOTON    = 12;  // D6 / GPIO12
 const int PIN_SENSOR   = 13;  // D7 / GPIO13  (salida DIGITAL del módulo)
 const int PIN_LED      = 2;   // D4 / GPIO2
 const int PIN_BUZZER   = 14;  // D5 / GPIO14
-
-// ================= LCD I2C =================
-LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 // ================= WIFI =================
 const char* WIFI_NOMBRE = "MorseESP8266";
@@ -26,13 +21,9 @@ const unsigned long FILTRO_SENSOR     = 40;
 
 const int NIVEL_ACTIVO_SENSOR = LOW;
 
-// ================= LCD: ALTERNANCIA DE PANTALLAS =================
-const unsigned long LCD_TIEMPO_ALTERNANCIA = 3000;  // cada cuánto cambia
-const unsigned long LCD_TIEMPO_INACTIVIDAD = 4000;  // tras esto vuelve a info
-unsigned long lcdUltimoCambio = 0;
-unsigned long lcdUltimaActividad = 0;
-bool lcdMostrandoWifi = false;     // false = pantalla de inicio, true = WiFi
-bool lcdEnModoInfo = true;         // true = alternando pantallas informativas
+// ================= FRECUENCIA DEL BUZZER =================
+// Ajusta si tu buzzer pasivo suena débil o no suena
+const unsigned int FRECUENCIA_BUZZER = 2000;  // Hz
 
 // ================= ESTADO BOTÓN =================
 int estadoAnteriorBoton = HIGH;
@@ -64,11 +55,6 @@ String ultimoMorseSonido = "";
 String colaReproduccion = "";
 bool reproduciendo = false;
 unsigned long tiempoSiguienteSimbolo = 0;
-
-// ================= LCD: control de refresco =================
-String lcdFilaAnterior0 = "";
-String lcdFilaAnterior1 = "";
-unsigned long lcdUltimoRefresco = 0;
 
 // ================= DICCIONARIO MORSE =================
 char decodificarMorse(String morse) {
@@ -130,11 +116,11 @@ void procesarReproduccion(unsigned long ahora) {
   colaReproduccion.remove(0, 1);
 
   if (c == '.') {
-    tone(PIN_BUZZER, 2700, 100);
+    tone(PIN_BUZZER, FRECUENCIA_BUZZER, 100);
     reproduciendo = true;
     tiempoSiguienteSimbolo = ahora + 100;
   } else if (c == '-') {
-    tone(PIN_BUZZER, 2700, 300);
+    tone(PIN_BUZZER, FRECUENCIA_BUZZER, 300);
     reproduciendo = true;
     tiempoSiguienteSimbolo = ahora + 300;
   } else if (c == ' ') {
@@ -366,45 +352,6 @@ void iniciarWeb() {
   server.begin();
 }
 
-// ================= LCD =================
-void lcdRefrescar(const String &fila0, const String &fila1) {
-  if (fila0 != lcdFilaAnterior0) {
-    String f = fila0;
-    if (f.length() > 16) f = f.substring(f.length() - 16);
-    while (f.length() < 16) f += " ";
-    lcd.setCursor(0, 0); lcd.print(f);
-    lcdFilaAnterior0 = fila0;
-  }
-  if (fila1 != lcdFilaAnterior1) {
-    String f = fila1;
-    if (f.length() > 16) f = f.substring(f.length() - 16);
-    while (f.length() < 16) f += " ";
-    lcd.setCursor(0, 1); lcd.print(f);
-    lcdFilaAnterior1 = fila1;
-  }
-}
-
-// ================= PANTALLAS INFORMATIVAS =================
-// Pantalla 1: título + "Iniciando..."
-void mostrarPantallaInicio() {
-  lcdRefrescar("Morse Receptor", "Iniciando...");
-}
-
-// Pantalla 2: red + IP y clave
-void mostrarPantallaWifi() {
-  String fila0 = String("Red:") + WIFI_NOMBRE;
-  String fila1 = String("Clave:") + WIFI_CLAVE;
-  lcdRefrescar(fila0, fila1);
-}
-
-// Pantalla 3: URL a conectar
-void mostrarPantallaURL() {
-  String ip = WiFi.softAPIP().toString();
-  String fila0 = "Abre en navegador:";
-  String fila1 = "http://" + ip;
-  lcdRefrescar(fila0, fila1);
-}
-
 // ================= SETUP =================
 void setup() {
   pinMode(PIN_BOTON, INPUT_PULLUP);
@@ -420,13 +367,11 @@ void setup() {
   Serial.println();
   Serial.println("=== MORSE RECEPTOR ESP8266 ===");
 
-  Wire.begin(4, 5);
-  lcd.init();
-  lcd.backlight();
-
-  // Primera pantalla: inicio
-  mostrarPantallaInicio();
-  delay(1500);
+  // Prueba de sonido al arrancar (para verificar el buzzer)
+  Serial.println("Prueba de buzzer...");
+  tone(PIN_BUZZER, FRECUENCIA_BUZZER, 500);
+  delay(600);
+  noTone(PIN_BUZZER);
 
   WiFi.mode(WIFI_AP);
   WiFi.softAP(WIFI_NOMBRE, WIFI_CLAVE);
@@ -444,12 +389,6 @@ void setup() {
   lecturaEstableSensor  = lecturaAnteriorSensor;
   tiempoCambioSensor = millis();
 
-  // Inicializar alternancia del LCD
-  lcdUltimoCambio = millis();
-  lcdUltimaActividad = millis();
-  lcdMostrandoWifi = false;
-  lcdEnModoInfo = true;
-
   Serial.println("Servidor web iniciado.");
 }
 
@@ -465,12 +404,13 @@ void loop() {
   if (estadoBoton == LOW && estadoAnteriorBoton == HIGH) {
     tiempoInicioBoton = ahora;
     digitalWrite(PIN_LED, LOW);
-    digitalWrite(PIN_BUZZER, HIGH);
-    lcdUltimaActividad = ahora;
+    // Buzzer pasivo: tone() continuo mientras se mantiene pulsado
+    tone(PIN_BUZZER, FRECUENCIA_BUZZER);
   }
   if (estadoBoton == HIGH && estadoAnteriorBoton == LOW) {
     unsigned long duracion = ahora - tiempoInicioBoton;
-    digitalWrite(PIN_BUZZER, LOW);
+    // Detener el tono continuo
+    noTone(PIN_BUZZER);
     digitalWrite(PIN_LED, HIGH);
     tiempoUltimoEventoBoton = ahora;
     agregarSimbolo(secuenciaBoton, duracion < UMBRAL_PUNTO_RAYA);
@@ -493,7 +433,6 @@ void loop() {
     if (sensorActivo && !sensorActivoAnterior) {
       tiempoInicioSonido = ahora;
       digitalWrite(PIN_LED, LOW);
-      lcdUltimaActividad = ahora;
     }
     if (!sensorActivo && sensorActivoAnterior) {
       unsigned long duracion = ahora - tiempoInicioSonido;
@@ -527,47 +466,6 @@ void loop() {
 
   // ---------- REPRODUCCIÓN POR BUZZER ----------
   procesarReproduccion(ahora);
-
-  // ---------- LCD ----------
-  // Si hay actividad Morse, mostrar estado en vivo.
-  bool hayActividad = (secuenciaSonido.length() > 0) ||
-                      (secuenciaBoton.length() > 0) ||
-                      sonidoDetectado || botonPresionado;
-
-  if (hayActividad) {
-    lcdUltimaActividad = ahora;
-    lcdEnModoInfo = false;
-  } else if (ahora - lcdUltimaActividad >= LCD_TIEMPO_INACTIVIDAD) {
-    lcdEnModoInfo = true;
-  }
-
-  if (lcdEnModoInfo) {
-    // Alternar entre pantallas informativas cada LCD_TIEMPO_ALTERNANCIA
-    if (ahora - lcdUltimoCambio >= LCD_TIEMPO_ALTERNANCIA) {
-      lcdUltimoCambio = ahora;
-      // Ciclo: inicio → wifi (red+clave) → url → inicio...
-      static int pasoInfo = 0;
-      pasoInfo = (pasoInfo + 1) % 3;
-      if (pasoInfo == 0)      mostrarPantallaInicio();
-      else if (pasoInfo == 1) mostrarPantallaWifi();
-      else                    mostrarPantallaURL();
-    }
-  } else {
-    // Mostrar estado en vivo (secuencias)
-    String f0;
-    if (microfonoHabilitado && secuenciaSonido.length() > 0)
-      f0 = "S> " + secuenciaSonido;
-    else if (secuenciaBoton.length() > 0)
-      f0 = "B> " + secuenciaBoton;
-    else
-      f0 = microfonoHabilitado ? "Morse Receptor" : "Mic OFF";
-
-    String f1 = textoSonido.length() > 0 ? textoSonido : textoBoton;
-    if (ahora - lcdUltimoRefresco >= 100) {
-      lcdRefrescar(f0, f1);
-      lcdUltimoRefresco = ahora;
-    }
-  }
 
   delay(2);
 }
