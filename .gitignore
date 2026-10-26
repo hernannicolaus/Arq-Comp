@@ -1,0 +1,49 @@
+# Dependencies
+client/node_modules/
+
+# Build artifacts
+client/dist/
+client/build/
+
+# Generated web header for ESP8266
+sketch_oct19a/web_page.h
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE settings
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+
+# Arduino build artifacts
+**/build/
+**/Debug/
+**/Release/
+*.elf
+*.hex
+*.bin
+*.map
+*.o
+*.d
+
+# Arduino IDE local files
+**/libraries/
+**/arduino_build_*/
