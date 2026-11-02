@@ -1,109 +1,113 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Teclado Morse · Receptor</title>
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Teclado Morse · Receptor</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header><h1>Teclado Morse <span>· Receptor ESP8266</span></h1></header>
-<main class="chat">
+  <header>
+    <h1>Teclado Morse <span>· Receptor ESP8266</span></h1>
+  </header>
 
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Sensor de sonido (app del celular)</h2>
-      <div class="estado"><span class="led" id="sonidoLed"></span><span id="sonidoEstado">Esperando</span></div>
-    </div>
-    <div class="historial" id="sonidoTexto">—</div>
-    <div class="codigo" id="sonidoCodigo">—</div>
-    <div class="meta"><span>último código</span><code id="sonidoUltimo">—</code></div>
-    <div class="control">
-      <button id="btnMicro" class="habilitado">🎤 Micrófono: ACTIVO</button>
-    </div>
-    <div class="aviso">
-      Desactivá el micrófono mientras usás el botón manual o el buzzer para evitar
-      que el sensor capte esos sonidos y los decodifique por error.
-    </div>
-  </section>
+  <main class="chat">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Sensor de sonido (app del celular)</h2>
+        <div class="estado"><span id="sonidoLed" class="led"></span><span id="sonidoEstado">Esperando</span></div>
+      </div>
+      <div id="sonidoTexto" class="historial">—</div>
+      <div id="sonidoCodigo" class="codigo">—</div>
+      <div class="meta"><span>último código</span><code id="sonidoUltimo">—</code></div>
+      <div class="control">
+        <button id="btnMicro" class="habilitado">🎤 Micrófono: ACTIVO</button>
+      </div>
+      <div class="aviso">
+        Desactivá el micrófono mientras usás el botón manual o el buzzer para evitar
+        que el sensor capte esos sonidos y los decodifique por error.
+      </div>
+    </section>
 
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Botón manual</h2>
-      <div class="estado"><span class="led" id="botonLed"></span><span id="botonEstado">Listo</span></div>
-    </div>
-    <div class="historial" id="botonTexto">—</div>
-    <div class="codigo" id="botonCodigo">—</div>
-    <div class="meta"><span>último código</span><code id="botonUltimo">—</code></div>
-  </section>
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Botón manual</h2>
+        <div class="estado"><span id="botonLed" class="led"></span><span id="botonEstado">Listo</span></div>
+      </div>
+      <div id="botonTexto" class="historial">—</div>
+      <div id="botonCodigo" class="codigo">—</div>
+      <div class="meta"><span>último código</span><code id="botonUltimo">—</code></div>
+    </section>
+  </main>
 
-</main>
-<footer>
-  <b>Punto</b> = pulso corto · <b>Raya</b> = pulso largo.<br>
-  La letra se agrega cuando hacés una pausa. La vista se refresca sola.
-</footer>
+  <footer>
+    <b>Punto</b> = pulso corto · <b>Raya</b> = pulso largo.<br>
+    La letra se agrega cuando hacés una pausa. La vista se refresca sola.
+  </footer>
 
-<script>
-const $ = id => document.getElementById(id);
-let microLocal = true;
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let microLocal = true;
 
-function actualizarBotonMicro(activo){
-  microLocal = activo;
-  const b = $('btnMicro');
-  b.textContent = activo ? '🎤 Micrófono: ACTIVO' : '🔇 Micrófono: DESACTIVADO';
-  b.className = activo ? 'habilitado' : 'deshabilitado';
-}
-
-$('btnMicro').onclick = async () => {
-  const nuevo = !microLocal;
-  try{
-    const r = await fetch('/micro?on=' + (nuevo ? '1' : '0'), {cache:'no-store'});
-    if(!r.ok) throw new Error('sin respuesta');
-    actualizarBotonMicro(nuevo);
-  }catch(e){ console.error('No se pudo cambiar el micrófono', e); }
-};
-
-async function actualizar(){
-  try{
-    const r = await fetch('/estado', {cache:'no-store'});
-    if(!r.ok) throw new Error('Sin respuesta');
-    const d = await r.json();
-
-    actualizarBotonMicro(!!d.microfono);
-
-    if (!d.microfono){
-      $('sonidoEstado').textContent = 'Apagado';
-      $('sonidoLed').className = 'led apagado';
-    } else {
-      $('sonidoEstado').textContent = d.sonidoActivo ? 'Detectando' : 'Esperando';
-      $('sonidoLed').className = d.sonidoActivo ? 'led on' : 'led';
+    function actualizarBotonMicro(activo) {
+      microLocal = activo;
+      const boton = $('btnMicro');
+      boton.textContent = activo ? '🎤 Micrófono: ACTIVO' : '🔇 Micrófono: DESACTIVADO';
+      boton.className = activo ? 'habilitado' : 'deshabilitado';
     }
 
-    $('botonEstado').textContent = d.botonActivo ? 'Presionado' : 'Listo';
-    $('botonLed').classList.toggle('on', !!d.botonActivo);
+    $('btnMicro').onclick = async () => {
+      const nuevo = !microLocal;
+      try {
+        const respuesta = await fetch('/micro?on=' + (nuevo ? '1' : '0'), { cache: 'no-store' });
+        if (!respuesta.ok) throw new Error('sin respuesta');
+        actualizarBotonMicro(nuevo);
+      } catch (error) {
+        console.error('No se pudo cambiar el micrófono', error);
+      }
+    };
 
-    $('botonCodigo').textContent  = d.morseBoton  || '—';
-    $('sonidoCodigo').textContent = d.morseSonido || '—';
+    async function actualizar() {
+      try {
+        const respuesta = await fetch('/estado', { cache: 'no-store' });
+        if (!respuesta.ok) throw new Error('Sin respuesta');
+        const datos = await respuesta.json();
 
-    $('botonTexto').textContent  = d.textoBoton  || '—';
-    $('sonidoTexto').textContent = d.textoSonido || '—';
+        actualizarBotonMicro(!!datos.microfono);
 
-    $('botonUltimo').textContent  = d.ultimoBoton  || '—';
-    $('sonidoUltimo').textContent = d.ultimoSonido || '—';
+        if (!datos.microfono) {
+          $('sonidoEstado').textContent = 'Apagado';
+          $('sonidoLed').className = 'led apagado';
+        } else {
+          $('sonidoEstado').textContent = datos.sonidoActivo ? 'Detectando' : 'Esperando';
+          $('sonidoLed').className = datos.sonidoActivo ? 'led on' : 'led';
+        }
 
-    ['botonTexto','sonidoTexto'].forEach(id=>{
-      const el = $(id);
-      el.scrollTop = el.scrollHeight;
-    });
-  }catch(e){
-    ['botonEstado','sonidoEstado'].forEach(id=>{
-      $(id).textContent = 'Reconectando…';
-    });
-  }
-}
+        $('botonEstado').textContent = datos.botonActivo ? 'Presionado' : 'Listo';
+        $('botonLed').classList.toggle('on', !!datos.botonActivo);
 
-actualizar();
-setInterval(actualizar, 300);
-</script>
+        $('botonCodigo').textContent = datos.morseBoton || '—';
+        $('sonidoCodigo').textContent = datos.morseSonido || '—';
+
+        $('botonTexto').textContent = datos.textoBoton || '—';
+        $('sonidoTexto').textContent = datos.textoSonido || '—';
+
+        $('botonUltimo').textContent = datos.ultimoBoton || '—';
+        $('sonidoUltimo').textContent = datos.ultimoSonido || '—';
+
+        ['botonTexto', 'sonidoTexto'].forEach((id) => {
+          const elemento = $(id);
+          elemento.scrollTop = elemento.scrollHeight;
+        });
+      } catch (error) {
+        ['botonEstado', 'sonidoEstado'].forEach((id) => {
+          $(id).textContent = 'Reconectando…';
+        });
+      }
+    }
+
+    actualizar();
+    setInterval(actualizar, 300);
+  </script>
 </body>
 </html>
