@@ -123,11 +123,6 @@ main {
   word-break: break-all;
 }
 
-.historial:empty::before {
-  content: "—";
-  color: var(--texto-suave);
-}
-
 .codigo {
   display: flex;
   align-items: center;
