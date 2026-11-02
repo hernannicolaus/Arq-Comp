@@ -1,0 +1,343 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Jacobs Portrait Poster
+% LaTeX Template
+% Version 1.0 (31/08/2015)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\documentclass[final]{beamer}
+
+\usepackage[scale=1.24]{beamerposter}
+\usetheme{confposter}
+
+\setbeamercolor{block title}{fg=ngreen,bg=white}
+\setbeamercolor{block body}{fg=black,bg=white}
+\setbeamercolor{block alerted title}{fg=white,bg=dblue!70}
+\setbeamercolor{block alerted body}{fg=black,bg=dblue!10}
+
+%-----------------------------------------------------------
+% Dimensiones del póster
+%-----------------------------------------------------------
+\newlength{\sepwid}
+\newlength{\onecolwid}
+\newlength{\twocolwid}
+\newlength{\threecolwid}
+\setlength{\paperwidth}{36in}
+\setlength{\paperheight}{48in}
+\setlength{\sepwid}{0.024\paperwidth}
+\setlength{\onecolwid}{0.22\paperwidth}
+\setlength{\twocolwid}{0.464\paperwidth}
+\setlength{\threecolwid}{0.708\paperwidth}
+\setlength{\topmargin}{-0.5in}
+%-----------------------------------------------------------
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{url}
+\graphicspath{ {./images/} }
+
+%-----------------------------------------------------------
+% Marcador de datos faltantes.
+% Buscar "PENDIENTE:" con Ctrl+F para completar uno por uno.
+%-----------------------------------------------------------
+\newcommand{\pendiente}[1]{\textcolor{red}{\textbf{[PENDIENTE: #1]}}}
+
+%----------------------------------------------------------------------------------------
+% TÍTULO
+%----------------------------------------------------------------------------------------
+\title{Sistema de Comunicación Morse mediante Audio}
+\author{Cristian Juárez, Nicolaus Hernán y Zambrano Serrano Héctor}
+\institute{Universidad Nacional de Hurlingham \\ Arquitectura de Computadoras --- Docente: Ing. Caroli Natalia}
+
+%----------------------------------------------------------------------------------------
+
+\begin{document}
+
+\addtobeamertemplate{block end}{}{\vspace*{2ex}}
+\addtobeamertemplate{block alerted end}{}{\vspace*{2ex}}
+\setlength{\belowcaptionskip}{2ex}
+\setlength\belowdisplayshortskip{2ex}
+
+\begin{frame}[t]
+\begin{columns}[t]
+
+\begin{column}{\sepwid}\end{column}
+
+%============================================================
+% COLUMNA 1
+%============================================================
+\begin{column}{\onecolwid}
+
+%----------------------------------------------------------------------------------------
+% OBJETIVOS
+%----------------------------------------------------------------------------------------
+\begin{alertblock}{Objetivos}
+\begin{itemize}
+\item Recibir señales acústicas correspondientes a código Morse emitidas por otro dispositivo.
+\item Detectar la frecuencia del tono recibido mediante el algoritmo de Goertzel.
+\item Diferenciar puntos, rayas y pausas a partir de la duración de los pulsos.
+\item Decodificar el código Morse y reconstruir el mensaje original.
+\item Mostrar el mensaje decodificado en un display y publicarlo en una interfaz web servida por el ESP8266.
+\item Transmitir código Morse mediante un buzzer, habilitando la comunicación bidireccional.
+\end{itemize}
+\end{alertblock}
+
+%----------------------------------------------------------------------------------------
+% INTRODUCCIÓN
+%----------------------------------------------------------------------------------------
+\begin{block}{1. Introducción}
+En un pequeño pueblo de una zona aislada, las comunicaciones convencionales se ven afectadas por cortes de energía, falta de cobertura celular y ausencia de infraestructura de Internet. Como alternativa se propone un sistema de comunicación mediante \textbf{señales acústicas} y \textbf{código Morse}.
+
+El ESP8266 recibe por micrófono los tonos generados por otro dispositivo (por ejemplo un teléfono), identifica puntos, rayas y pausas analizando la señal, y decodifica el mensaje.
+
+\textbf{Restricción clave del trabajo:} la información viaja \textbf{exclusivamente por sonido}. El Wi-Fi del ESP8266 se usa \textbf{únicamente} para visualizar en el navegador el mensaje ya recibido y decodificado; no es un canal de datos.
+\end{block}
+
+%----------------------------------------------------------------------------------------
+% DIAGRAMA EN BLOQUES
+%----------------------------------------------------------------------------------------
+\begin{figure}[h]
+% Imagen necesaria: documentation/images/diagramaDeBloques.png
+% \includegraphics[width=23cm, height=33cm]{diagramaDeBloques.png}
+\begin{center}
+\fbox{\begin{minipage}{0.90\linewidth}
+\centering
+\vspace{0.5cm}
+\pendiente{imagen del diagrama en bloques --- guardar como
+\texttt{Arq-Comp/documentation/images/diagramaDeBloques.png}}
+\vspace{0.9cm}
+
+{\small
+SONIDO $\rightarrow$ MICRÓFONO $\rightarrow$ ADC $\rightarrow$ GOERTZEL\\[0.4ex]
+$\rightarrow$ PUNTO / RAYA / PAUSA\\[0.4ex]
+$\rightarrow$ DECODIFICADOR MORSE $\rightarrow$ MENSAJE\\[0.4ex]
+$\rightarrow$ DISPLAY + INTERFAZ WEB
+}
+\vspace{0.6cm}
+\end{minipage}}
+\end{center}
+\caption{Diagrama en bloques del sistema completo}
+\end{figure}
+
+\end{column}
+
+\begin{column}{\sepwid}\end{column}
+
+%============================================================
+% COLUMNA 2 (doble ancho)
+%============================================================
+\begin{column}{\twocolwid}
+
+\begin{columns}[t,totalwidth=\twocolwid]
+
+%--------------------- Subcolumna 2.1 ---------------------
+\begin{column}{\onecolwid}\vspace{-.6in}
+
+%----------------------------------------------------------------------------------------
+% MARCO TEÓRICO
+%----------------------------------------------------------------------------------------
+\begin{block}{2. Marco Teórico}
+
+\subsection*{Código Morse y unidades temporales}
+El código Morse codifica cada letra como una secuencia de \textbf{puntos} y \textbf{rayas}. La duración de referencia es la unidad de tiempo $u$: el punto dura $1u$, la raya $3u$; la pausa entre símbolos de una misma letra es $1u$, entre letras $3u$ y entre palabras $7u$. Como el sistema no conoce la velocidad del transmisor, en lugar de tiempos absolutos se usan \textbf{umbrales de duración en ms}, calibrables durante las pruebas.
+
+\subsection*{Algoritmo de Goertzel}
+Goertzel calcula la energía de \textbf{un solo bin} de la DFT mediante una recursión de segundo orden:
+\[
+\mathrm{coeff} = 2\cos\!\left(\frac{2\pi k}{N}\right),\qquad
+s_n = x_n + \mathrm{coeff}\,s_{n-1} - s_{n-2}
+\]
+\[
+P = s_{N-2}^{2} + s_{N-1}^{2} - \mathrm{coeff}\,s_{N-1}s_{N-2},\qquad
+|X_k| = \sqrt{P}
+\]
+\textbf{Por qué alcanza y no hace falta una FFT completa:} solo interesa saber si hay energía en la frecuencia del tono. Goertzel recorre las muestras una vez, con una multiplicación-acumulación por muestra y \textbf{un único coseno} calculado fuera del lazo; no requiere el buffer complejo de $N$ puntos ni el ordenamiento de una FFT. En un ESP8266 eso se traduce en menos RAM y menos ciclos para el mismo resultado sobre el bin de interés.
+
+\subsection*{ADC del ESP8266 y acondicionamiento}
+El ADC integrado es de \textbf{10 bits} (0 a 1023) y su rango de entrada es de \textbf{0 a 1{,}0\,V}, no 0 a 5\,V. El módulo de sonido entrega la señal montada sobre un \textbf{offset de continua}, por lo que la entrada se acopla en AC y se polariza cerca de 0{,}5\,V; en el software se \textbf{resta la media del bloque} antes de Goertzel. Si el pico llega al fondo de escala, la demo avisa de saturación del ADC y hay que bajar la ganancia del potenciómetro.
+
+\subsection*{Parámetros de muestreo elegidos}
+\begin{itemize}
+\item $F_s = 4000$\,Hz y $N = 400$ muestras: ventana de \textbf{100\,ms}, resolución $F_s/N = 10$\,Hz.
+\item Tono objetivo de \textbf{700\,Hz} $\Rightarrow k = 70$ exacto: el tono cae justo en el bin, sin fuga espectral.
+\item Compromiso de diseño: una ventana más larga mejora la resolución en frecuencia, pero un punto de $\sim$60\,ms ya no entraría completo en el bloque.
+\end{itemize}
+
+\end{block}
+
+%----------------------------------------------------------------------------------------
+
+\end{column}
+
+%--------------------- Subcolumna 2.2 ---------------------
+\begin{column}{\onecolwid}\vspace{-.6in}
+
+%----------------------------------------------------------------------------------------
+% METODOLOGÍA
+%----------------------------------------------------------------------------------------
+\begin{block}{3. Metodología}
+
+Trabajo experimental aplicado, desarrollado en \textbf{dos etapas}: primero una demo aislada del DSP y después la integración del sistema completo.
+
+\subsection*{Componentes}
+\begin{itemize}
+\item ESP8266 en modo \textbf{Access Point}: SSID \texttt{MorseESP8266}, clave \texttt{Morse123}, servidor HTTP en el puerto 80 (IP 192.168.4.1).
+\item Módulo de sonido con salida \textbf{digital} (detección por umbral, potenciómetro de ganancia) y salida \textbf{analógica} para la demo de Goertzel.
+\item Buzzer pasivo, pulsador o llave Morse y LED indicador.
+\end{itemize}
+
+\subsection*{Herramientas}
+\begin{itemize}
+\item Firmware: Arduino IDE (core ESP8266).
+\item Interfaz web: Node.js con \texttt{html-minifier-terser}; \texttt{npm run build:web} minifica \texttt{client/src} y genera el header \texttt{web\_page.h}.
+\end{itemize}
+
+\subsection*{Estrategia de validación}
+\begin{enumerate}
+\item \textbf{Demo aislada} (\texttt{goertzel\_demo}): sin Wi-Fi ni display, solo monitor serie. Se observan las estadísticas de amplitud en silencio y con tono para fijar el umbral sobre la placa real.
+\item \textbf{Integración}: los umbrales validados se trasladan al firmware principal y se verifica la cadena completa con la interfaz web.
+\end{enumerate}
+
+\subsection*{Conexiones del sistema}
+{\small
+\begin{tabular}{l l l}
+\toprule
+\textbf{Componente} & \textbf{NodeMCU} & \textbf{GPIO}\\
+\midrule
+Pulsador / llave Morse & D6 & 12\\
+Sensor de sonido (digital) & D7 & 13\\
+LED indicador & D4 & 2\\
+Buzzer & D5 & 14\\
+Sensor de sonido (analógico) & A0 & ADC (demo)\\
+\bottomrule
+\end{tabular}
+}
+
+GPIO12 se configura con \texttt{INPUT\_PULLUP}. A0 es la única entrada analógica del ESP8266 y se usa en la demo de Goertzel.
+
+\end{block}
+
+%----------------------------------------------------------------------------------------
+
+\end{column}
+
+\end{columns}
+
+%----------------------------------------------------------------------------------------
+% RESULTADOS DESTACADOS
+%----------------------------------------------------------------------------------------
+\begin{alertblock}{4. Resultados Destacados}
+
+Se reporta únicamente lo implementado y verificable en el repositorio:
+
+\begin{itemize}
+\item \textbf{Decodificación A--Z funcionando:} diccionario Morse completo (26 letras), buffer del mensaje de 80 caracteres, tanto por sensor de sonido como por botón manual.
+\item \textbf{Clasificación por duración:} pulso menor a 200\,ms $\rightarrow$ punto; 200\,ms o más $\rightarrow$ raya; silencio de 800\,ms o más cierra la letra; filtro antirrebote de 40\,ms en el sensor y descarte de pulsos menores a 30\,ms.
+\item \textbf{Interfaz web operativa:} dos paneles (sensor y botón manual), refresco por \textit{polling} cada 300\,ms, con mensaje decodificado, código en curso, último código y estado del LED.
+\item \textbf{Comunicación bidireccional:} al cerrar una letra recibida por micrófono, el ESP8266 la re-emite por buzzer (punto 100\,ms, raya 300\,ms, 2000\,Hz); el botón manual hace sonar el buzzer mientras se mantiene pulsado.
+\item \textbf{Un solo origen para la UI:} \texttt{client/src} se minifica y se genera \texttt{WEB\_PAGE[] PROGMEM}, servido con \texttt{send\_P()}. Antes el \texttt{.ino} tenía una copia duplicada del HTML que ya había divergido.
+\item \textbf{Demo de Goertzel con parámetros cerrados:} $F_s = 4000$\,Hz, $N = 400$, $k = 70$, ventana de 100\,ms, histéresis de 2 bloques y aviso de saturación del ADC.
+\end{itemize}
+
+\textbf{Alcance actual del DSP:} el firmware principal decodifica sobre la salida \textbf{digital} del módulo de sonido, mientras que el Goertzel trabaja sobre la salida analógica en la demo aislada. La integración del Goertzel analógico al firmware principal queda \pendiente{integrar el Goertzel del demo en el firmware principal}.
+
+\textbf{Métricas de calidad todavía no medidas:} tasa de acierto de caracteres \pendiente{tasa de acierto de caracteres, indicar método y cantidad de ensayos}; velocidad máxima soportada \pendiente{WPM máximo soportado}; alcance acústico \pendiente{distancia máxima de recepción en metros}; latencia \pendiente{latencia de detección en ms}; tiempo de decodificación \pendiente{tiempo de decodificación por letra en ms}.
+
+\end{alertblock}
+
+%----------------------------------------------------------------------------------------
+% MONTAJE FÍSICO (ANCHO COMPLETO)
+%----------------------------------------------------------------------------------------
+\begin{block}{5. Montaje Físico}
+\begin{figure}[h]
+% Imagen necesaria: documentation/images/montajefisico.png
+% \includegraphics[width=30cm, height=14cm]{montajefisico.png}
+\begin{center}
+\fbox{\begin{minipage}{0.92\linewidth}
+\centering
+\vspace{1.8cm}
+\pendiente{fotografía del montaje físico --- guardar como
+\texttt{Arq-Comp/documentation/images/montajefisico.png}}
+\vspace{1.8cm}
+\end{minipage}}
+\end{center}
+\caption{Montaje físico del prototipo}
+\end{figure}
+\end{block}
+
+\end{column}
+
+\begin{column}{\sepwid}\end{column}
+
+%============================================================
+% COLUMNA 3
+%============================================================
+\begin{column}{\onecolwid}
+
+%----------------------------------------------------------------------------------------
+% CONCLUSIONES
+%----------------------------------------------------------------------------------------
+\begin{block}{6. Conclusiones}
+
+\begin{itemize}
+\item Se implementó un sistema \textbf{bidireccional} sobre ESP8266: recibe y decodifica Morse a partir de sonido, y transmite Morse con el buzzer.
+\item La restricción del enunciado se cumple: el canal de datos es \textbf{acústico} y el Wi-Fi se limita a publicar el estado para visualización.
+\item El AP propio (\texttt{MorseESP8266}) hace que el sistema no dependa de infraestructura de red externa.
+\item La clasificación por duración con umbrales calibrables resultó suficiente para la salida digital del módulo de sonido.
+\item Goertzel reduce el costo frente a una FFT completa cuando solo interesa un tono; la demo aislada permitió validar sus parámetros antes de integrar.
+\item Mantener la interfaz web en un único origen evita que la página embebida en el firmware vuelva a divergir del HTML editado.
+\item Robustez frente a ruido y alcance real del enlace: \pendiente{conclusión cuantitativa cuando se midan tasa de acierto y distancia}.
+\end{itemize}
+
+\end{block}
+
+%----------------------------------------------------------------------------------------
+% REFERENCIAS
+%----------------------------------------------------------------------------------------
+\begin{block}{7. Referencias}
+
+\begin{itemize}
+\item Arduino. \emph{Arduino Documentation}. \url{https://docs.arduino.cc}
+\item ESP8266 Arduino Core. \emph{Documentation}. \url{https://arduino-esp8266.readthedocs.io}
+\item Cátedra Arquitectura de Computadoras, Universidad Nacional de Hurlingham (2026). \emph{Sistema de comunicación Morse mediante audio} (enunciado del TP).
+\item Goertzel, G. (1958). An Algorithm for the Evaluation of Finite Trigonometric Series. \emph{American Mathematical Monthly}, 65(1), 34--35.
+\item Simulación: \pendiente{link de simulación}
+\end{itemize}
+
+% NOTA: Wokwi no soporta ESP8266. Hay que definir la herramienta de
+% simulación de este TP antes de completar el marcador anterior.
+
+\end{block}
+
+%----------------------------------------------------------------------------------------
+% CONTACTO
+%----------------------------------------------------------------------------------------
+\setbeamercolor{block alerted title}{fg=black,bg=norange}
+\setbeamercolor{block alerted body}{fg=black,bg=white}
+
+\begin{alertblock}{Contacto}
+\begin{itemize}
+\item \textbf{Emails}:
+  \begin{itemize}
+  \item cristianjuarezdev@gmail.com
+  \item hernannicolaus@gmail.com
+  \item hzambrano110@gmail.com
+  \end{itemize}
+\item \textbf{Teléfonos}:
+  \begin{itemize}
+  \item +54 9 11 3272 7298
+  \item +54 9 11 3251 8092
+  \item +52 55 5060 8768
+  \end{itemize}
+\end{itemize}
+\end{alertblock}
+
+\end{column}
+
+\end{columns}
+\end{frame}
+
+\end{document}
