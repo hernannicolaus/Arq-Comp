@@ -5,9 +5,6 @@ client/node_modules/
 client/dist/
 client/build/
 
-# Generated web header for ESP8266
-sketch_oct19a/web_page.h
-
 # Environment variables and secrets
 .env
 .env.*

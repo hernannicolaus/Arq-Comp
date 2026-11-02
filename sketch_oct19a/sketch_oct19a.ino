@@ -1,5 +1,6 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include "web_page.h"
 
 // ================= PINES (SIN CONFLICTO) =================
 const int PIN_BOTON    = 12;  // D6 / GPIO12
@@ -143,165 +144,6 @@ void finalizarLetra(String &secuencia, String &texto, String &ultimoMorse,
   secuencia = "";
 }
 
-// ================= PÁGINA WEB =================
-const char PAGINA[] PROGMEM = R"HTML(
-<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Teclado Morse · Receptor</title>
-<style>
-  :root{--fondo:#1e1f22;--panel:#2b2d31;--panel-2:#313338;--borde:#3f4147;
-    --texto:#dbdee1;--texto-suave:#949ba4;--acento:#57b3a0;
-    --punto:#e0b44a;--raya:#e07a4a;--rojo:#e05a5a;}
-  *{box-sizing:border-box;}
-  body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    background:var(--fondo);color:var(--texto);font-size:15px;line-height:1.45;}
-  header{background:var(--panel);border-bottom:1px solid var(--borde);padding:14px 20px;}
-  header h1{margin:0;font-size:16px;font-weight:600;letter-spacing:.3px;}
-  header h1 span{color:var(--texto-suave);font-weight:400;}
-  main{max-width:820px;margin:0 auto;padding:20px;}
-  .chat{display:flex;flex-direction:column;gap:18px;}
-  .panel{background:var(--panel-2);border:1px solid var(--borde);border-radius:8px;overflow:hidden;}
-  .panel-head{display:flex;align-items:center;justify-content:space-between;
-    padding:10px 14px;border-bottom:1px solid var(--borde);background:var(--panel);}
-  .panel-head h2{margin:0;font-size:13px;font-weight:600;text-transform:uppercase;
-    letter-spacing:.6px;color:var(--texto-suave);}
-  .estado{font-size:12px;color:var(--texto-suave);display:flex;align-items:center;gap:6px;}
-  .led{width:8px;height:8px;border-radius:50%;background:#4a4d55;display:inline-block;}
-  .led.on{background:var(--acento);box-shadow:0 0 6px var(--acento);}
-  .led.apagado{background:var(--rojo);box-shadow:0 0 6px var(--rojo);}
-  .historial{min-height:70px;max-height:150px;overflow-y:auto;padding:12px 14px;
-    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:18px;
-    letter-spacing:2px;word-break:break-all;color:var(--texto);
-    background:repeating-linear-gradient(to bottom,transparent,transparent 27px,
-      rgba(255,255,255,.03) 28px);}
-  .historial:empty::before{content:"—";color:var(--texto-suave);}
-  .codigo{padding:10px 14px;border-top:1px solid var(--borde);
-    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;
-    color:var(--punto);display:flex;align-items:center;gap:8px;min-height:38px;}
-  .codigo::before{content:"›";color:var(--texto-suave);font-size:16px;}
-  .meta{display:flex;justify-content:space-between;padding:8px 14px;font-size:12px;
-    color:var(--texto-suave);border-top:1px solid var(--borde);}
-  .meta code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--texto);}
-  .control{padding:12px 14px;border-top:1px solid var(--borde);}
-  .control button{appearance:none;width:100%;border:1px solid var(--borde);
-    background:var(--panel);color:var(--texto);font-size:15px;padding:14px 10px;
-    border-radius:6px;cursor:pointer;font-family:inherit;font-weight:600;
-    transition:transform .05s, background .15s, border-color .15s;}
-  .control button:active{transform:scale(.98);background:#3a3d44;}
-  .control button.habilitado{border-color:var(--acento);color:var(--acento);}
-  .control button.deshabilitado{border-color:var(--rojo);color:var(--rojo);}
-  .aviso{padding:0 14px 12px;font-size:12px;color:var(--texto-suave);}
-  footer{max-width:820px;margin:0 auto;padding:0 20px 30px;font-size:12px;
-    color:var(--texto-suave);line-height:1.6;}
-  footer b{color:var(--texto);font-weight:500;}
-</style>
-</head>
-<body>
-<header><h1>Teclado Morse <span>· Receptor ESP8266</span></h1></header>
-<main class="chat">
-
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Sensor de sonido (app del celular)</h2>
-      <div class="estado"><span class="led" id="sonidoLed"></span><span id="sonidoEstado">Esperando</span></div>
-    </div>
-    <div class="historial" id="sonidoTexto">—</div>
-    <div class="codigo" id="sonidoCodigo">—</div>
-    <div class="meta"><span>último código</span><code id="sonidoUltimo">—</code></div>
-    <div class="control">
-      <button id="btnMicro" class="habilitado">🎤 Micrófono: ACTIVO</button>
-    </div>
-    <div class="aviso">
-      Desactivá el micrófono mientras usás el botón manual o el buzzer para evitar
-      que el sensor capte esos sonidos y los decodifique por error.
-    </div>
-  </section>
-
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Botón manual</h2>
-      <div class="estado"><span class="led" id="botonLed"></span><span id="botonEstado">Listo</span></div>
-    </div>
-    <div class="historial" id="botonTexto">—</div>
-    <div class="codigo" id="botonCodigo">—</div>
-    <div class="meta"><span>último código</span><code id="botonUltimo">—</code></div>
-  </section>
-
-</main>
-<footer>
-  <b>Punto</b> = pulso corto · <b>Raya</b> = pulso largo.<br>
-  La letra se agrega cuando hacés una pausa. La vista se refresca sola.
-</footer>
-
-<script>
-const $ = id => document.getElementById(id);
-let microLocal = true;
-
-function actualizarBotonMicro(activo){
-  microLocal = activo;
-  const b = $('btnMicro');
-  b.textContent = activo ? '🎤 Micrófono: ACTIVO' : '🔇 Micrófono: DESACTIVADO';
-  b.className = activo ? 'habilitado' : 'deshabilitado';
-}
-
-$('btnMicro').onclick = async () => {
-  const nuevo = !microLocal;
-  try{
-    const r = await fetch('/micro?on=' + (nuevo ? '1' : '0'), {cache:'no-store'});
-    if(!r.ok) throw new Error('sin respuesta');
-    actualizarBotonMicro(nuevo);
-  }catch(e){ console.error('No se pudo cambiar el micrófono', e); }
-};
-
-async function actualizar(){
-  try{
-    const r = await fetch('/estado', {cache:'no-store'});
-    if(!r.ok) throw new Error('Sin respuesta');
-    const d = await r.json();
-
-    actualizarBotonMicro(!!d.microfono);
-
-    if (!d.microfono){
-      $('sonidoEstado').textContent = 'Apagado';
-      $('sonidoLed').className = 'led apagado';
-    } else {
-      $('sonidoEstado').textContent = d.sonidoActivo ? 'Detectando' : 'Esperando';
-      $('sonidoLed').className = d.sonidoActivo ? 'led on' : 'led';
-    }
-
-    $('botonEstado').textContent = d.botonActivo ? 'Presionado' : 'Listo';
-    $('botonLed').classList.toggle('on', !!d.botonActivo);
-
-    $('botonCodigo').textContent  = d.morseBoton  || '—';
-    $('sonidoCodigo').textContent = d.morseSonido || '—';
-
-    $('botonTexto').textContent  = d.textoBoton  || '—';
-    $('sonidoTexto').textContent = d.textoSonido || '—';
-
-    $('botonUltimo').textContent  = d.ultimoBoton  || '—';
-    $('sonidoUltimo').textContent = d.ultimoSonido || '—';
-
-    ['botonTexto','sonidoTexto'].forEach(id=>{
-      const el = $(id);
-      el.scrollTop = el.scrollHeight;
-    });
-  }catch(e){
-    ['botonEstado','sonidoEstado'].forEach(id=>{
-      $(id).textContent = 'Reconectando…';
-    });
-  }
-}
-
-actualizar();
-setInterval(actualizar, 300);
-</script>
-</body>
-</html>
-)HTML";
-
 // ================= JSON DE ESTADO =================
 void enviarEstado() {
   String json = "{";
@@ -344,7 +186,7 @@ void handleMicro() {
 // ================= CONFIGURAR WEB =================
 void iniciarWeb() {
   server.on("/", HTTP_GET, []() {
-    server.send_P(200, "text/html; charset=utf-8", PAGINA);
+    server.send_P(200, "text/html; charset=utf-8", WEB_PAGE);
   });
   server.on("/estado", HTTP_GET, enviarEstado);
   server.on("/micro",  HTTP_GET, handleMicro);
