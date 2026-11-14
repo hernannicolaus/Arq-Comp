@@ -76,6 +76,7 @@ const uint8_t fuente[][5] PROGMEM = {
 };
 
 // Matriz MAX7219
+// Muestra un caracter en la matriz MAX7219 cuando esta habilitada.
 void mostrar(char c) {
   if (!MATRIZ_HABILITADA) return;
 
@@ -95,6 +96,7 @@ void mostrar(char c) {
   }
 }
 
+// Muestra temporalmente un caracter y programa cuando apagarlo.
 void mostrarPor(char c, unsigned long ms) {
   if (!MATRIZ_HABILITADA) return;
 
@@ -103,6 +105,7 @@ void mostrarPor(char c, unsigned long ms) {
   matrizTemporal = true;
 }
 
+// Realiza una prueba inicial de LED y caracteres en la matriz.
 void probarMatriz() {
   if (!MATRIZ_HABILITADA) return;
 
@@ -124,6 +127,7 @@ void probarMatriz() {
   matriz.clearDisplay(0);
 }
 
+// Informa la IP por Serial y opcionalmente la muestra en la matriz.
 void mostrarIP() {
   String ip = WiFi.softAPIP().toString();
   Serial.println("IP: " + ip);
@@ -140,6 +144,7 @@ void mostrarIP() {
 }
 
 // Conversion Morse
+// Busca el codigo Morse correspondiente a una letra o numero.
 String codificar(char c) {
   c = toupper((unsigned char)c);
 
@@ -149,6 +154,7 @@ String codificar(char c) {
   return "";
 }
 
+// Convierte una secuencia de puntos y rayas en un caracter.
 char decodificar(String s) {
   for (int i = 0; i < 36; i++)
     if (s == codigos[i]) return letras[i];
@@ -156,6 +162,7 @@ char decodificar(String s) {
   return '?';
 }
 
+// Convierte texto completo a Morse y separa letras y palabras.
 String convertir(String texto) {
   texto.toUpperCase();
   String salida = "";
@@ -180,6 +187,7 @@ String convertir(String texto) {
 }
 
 // Recepcion Morse
+// Agrega un punto o raya a la secuencia Morse que se esta recibiendo.
 void agregar(String &sec, bool punto) {
   if (sec.length() >= 12) sec = "";
 
@@ -189,6 +197,7 @@ void agregar(String &sec, bool punto) {
   Serial.println(punto ? "[RX] PUNTO" : "[RX] RAYA");
 }
 
+// Decodifica una secuencia terminada y la agrega al mensaje recibido.
 void finalizar(String &sec, String &texto, String &ultimo) {
   if (!sec.length()) return;
 
@@ -205,6 +214,7 @@ void finalizar(String &sec, String &texto, String &ultimo) {
   sec = "";
 }
 
+// Inserta un espacio entre palabras cuando el silencio supera el limite.
 void pausa(String &sec, String &texto, bool &espacio,
            unsigned long ultimo, unsigned long limite,
            unsigned long ahora) {
@@ -218,6 +228,7 @@ void pausa(String &sec, String &texto, bool &espacio,
 }
 
 // Goertzel experimental
+// Muestrea el microfono y estima la energia de la frecuencia buscada.
 float goertzel() {
   float muestras[N], media = 0;
   unsigned long t = micros();
@@ -247,6 +258,7 @@ float goertzel() {
   return 4.0f * sqrtf(fmaxf(0.0f, potencia)) / N;
 }
 
+// Restablece el estado de deteccion del microfono y el LED indicador.
 void reiniciarMicro() {
   tono = false;
   positivos = negativos = 0;
@@ -255,6 +267,7 @@ void reiniciarMicro() {
   digitalWrite(LED, HIGH);
 }
 
+// Detecta tonos y silencios para clasificar pulsos como puntos o rayas.
 void leerMicro() {
   if (!microON || txON || botonON) return;
   if (millis() - ultimaMuestra < 25) return;
@@ -297,6 +310,7 @@ void leerMicro() {
 }
 
 // Boton manual
+// Lee el pulsador con antirrebote y codifica sus pulsaciones en Morse.
 void leerBoton(unsigned long ahora) {
   bool lectura = digitalRead(BOTON) == LOW;
 
@@ -330,6 +344,7 @@ void leerBoton(unsigned long ahora) {
 }
 
 // Transmision desde la web
+// Prepara la cola de simbolos Morse que se transmitira por el buzzer.
 void iniciarTX(String texto) {
   texto.trim();
   if (texto.length() > 60) texto = texto.substring(0, 60);
@@ -341,6 +356,7 @@ void iniciarTX(String texto) {
   reiniciarMicro();
 }
 
+// Reproduce de forma no bloqueante los tonos y pausas de la transmision.
 void procesarTX(unsigned long ahora) {
   if (!txON || (long)(ahora - siguienteTX) < 0) return;
 
@@ -467,9 +483,13 @@ button:disabled{opacity:.5}.secondary{background:#e2e8f0;color:#17253c}
 const $=id=>document.getElementById(id),abc="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const dic=[".-","-...","-.-.","-..",".","..-.","--.","....","..",".---","-.-",".-..","--","-.","---",".--.","--.-",".-.","...","-","..-","...-",".--","-..-","-.--","--..","-----",".----","..---","...--","....-",".....","-....","--...","---..","----."];
 let micro=false,ocupado=false;
+// Convierte el texto ingresado en la pagina a codigo Morse para su vista previa.
 function convertir(t){return t.toUpperCase().trim().split(/\s+/).map(p=>[...p].map(c=>dic[abc.indexOf(c)]||"").filter(Boolean).join(" ")).filter(Boolean).join(" / ")}
+// Actualiza en pantalla la vista previa Morse del mensaje escrito.
 function preview(){$("prev").textContent=convertir($("mensaje").value)||"—"}
+// Borra el texto del transmisor y actualiza su vista previa.
 function limpiarEntrada(){$("mensaje").value="";preview()}
+// Envia el mensaje al ESP8266 para transmitirlo con el buzzer.
 async function enviar(){
  let t=$("mensaje").value.trim();if(!t||ocupado)return;ocupado=true;
  try{
@@ -478,10 +498,13 @@ async function enviar(){
  }catch(e){$("estadoEnvio").textContent="Error de conexion"}
  finally{ocupado=false}
 }
+// Activa o desactiva la recepcion por microfono desde la pagina.
 async function toggleMicro(){
  try{let r=await fetch("/micro?on="+(micro?0:1));if(r.ok)actualizar()}catch(e){}
 }
+// Solicita al ESP8266 borrar los mensajes recibidos.
 async function borrar(){try{await fetch("/limpiar",{method:"POST"});actualizar()}catch(e){}}
+// Consulta el estado del ESP8266 y refresca los indicadores de la pagina.
 async function actualizar(){
  try{
   let r=await fetch("/estado",{cache:"no-store"});if(!r.ok)throw Error();
@@ -507,12 +530,14 @@ actualizar();setInterval(actualizar,700);
 )HTML";
 
 // API
+// Escapa caracteres especiales para incluir textos en la respuesta JSON.
 String seguro(String s) {
   s.replace("\\","\\\\");s.replace("\"","\\\"");
   s.replace("\n"," ");s.replace("\r"," ");
   return s;
 }
 
+// Envia a la pagina web los estados y mensajes actuales en formato JSON.
 void estadoWeb() {
   String j="{\"ip\":\""+WiFi.softAPIP().toString()+"\"";
   j+=",\"microfono\":"+String(microON?"true":"false");
@@ -530,6 +555,7 @@ void estadoWeb() {
   server.send(200,"application/json",j);
 }
 
+// Configura las rutas HTTP de la interfaz web y arranca el servidor.
 void iniciarWeb() {
   server.on("/",HTTP_GET,[](){server.send_P(200,"text/html; charset=utf-8",WEB);});
   server.on("/estado",HTTP_GET,estadoWeb);
@@ -561,6 +587,7 @@ void iniciarWeb() {
 }
 
 // Inicio
+// Inicializa pines, buzzer, Wi-Fi y servidor web al encender el ESP8266.
 void setup() {
   Serial.begin(115200);
   delay(300);
@@ -596,6 +623,7 @@ void setup() {
 }
 
 // Loop
+// Atiende la web y coordina continuamente la recepcion y transmision Morse.
 void loop() {
   server.handleClient();
   unsigned long ahora=millis();
