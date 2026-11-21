@@ -12,6 +12,7 @@ const unsigned long UNIDAD = 150; const unsigned long RAYA_BOTON = 300; const un
 const unsigned long LETRA_BOTON = 550; const unsigned long PALABRA_BOTON = 1400;
 const unsigned long LETRA_MIC = 460; const unsigned long PALABRA_MIC = 2100;
 const unsigned long SILENCIO_BUZZER = 300;
+const bool DIAGNOSTICO_DETALLADO = false; // Cambiar a true solo para diagnosticar A0.
 ESP8266WebServer server(80); float energia = 0, umbral = 8.0f; const float UMBRAL_APAGADO = 3.5f;
 const unsigned long CONFIRMAR_INICIO_MS = 25; const unsigned long CONFIRMAR_SILENCIO_MS = 45;
 const unsigned long PULSO_MIN_MS = 70; const unsigned long PULSO_MAX_MS = 650; float picoPulso = 0;
@@ -385,8 +386,14 @@ try{let r=await fetch("/enviar",{method:"POST",headers:{"Content-Type":"applicat
 catch(e){$("estadoEnvio").textContent="Error de conexion"}finally{ocupado=false}}
 async function toggleMicro(){if(!listo)return;try{let r=await fetch("/micro?on="+(micro?0:1));if(r.ok)actualizar()}catch(e){}}
 async function limpiar(tipo){try{let r=await fetch("/limpiar?tipo="+tipo,{method:"POST"});if(!r.ok)throw Error();actualizar()}catch(e){alert("No se pudo limpiar esta seccion")}}
-async function actualizar(){if(actualizando)return;actualizando=true;try{
-let r=await fetch("/estado",{cache:"no-store"});if(!r.ok)throw Error();let d=await r.json();
+async function actualizar(){if(actualizando||document.hidden)return;actualizando=true;try{
+const ctrl=new AbortController(), limite=setTimeout(()=>ctrl.abort(),1800);
+let r;
+try{r=await fetch("/estado",{cache:"no-store",signal:ctrl.signal});if(!r.ok)throw Error();}
+finally{clearTimeout(limite)}
+let d=await r.json();
+ultimoEstadoActivo=!!(d.tono||d.botonActivo||d.transmitiendo||d.morseSonido||d.morseBoton);
+clientesConectados=Number(d.clientes)||1;
 micro=d.microfono;listo=d.inicioListo;
 $("conexion").textContent="Conectado";$("ip").textContent=d.ip;
 $("microStat").textContent=!listo?"Iniciando":micro?"Activo":"Apagado";
@@ -402,9 +409,19 @@ $("flujoMicro").classList.toggle("activo",d.tono && micro);
 $("flujoTX").classList.toggle("activo",d.transmitiendo);
 $("duracion").textContent=d.duracion+" ms";
 $("microBtn").disabled=!listo;$("microBtn").textContent=micro?"Desactivar microfono":"Activar microfono";
-}catch(e){$("conexion").textContent="Sin conexion"}finally{actualizando=false}}
-actualizar();setInterval(()=>{if(!document.hidden)actualizar()},250);
-document.addEventListener("visibilitychange",()=>{if(!document.hidden)actualizar()});
+}catch(e){$("conexion").textContent="Sin conexion"}
+finally{
+  actualizando=false;
+  if(!document.hidden)programarConsulta(ultimoEstadoActivo?300:clientesConectados>=2?700:450);
+}}
+// Una sola consulta en curso; se ajusta la frecuencia segun la actividad y clientes.
+let proximaConsulta=null, ultimoEstadoActivo=false, clientesConectados=1;
+function programarConsulta(ms){clearTimeout(proximaConsulta);proximaConsulta=setTimeout(actualizar,ms)}
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden){clearTimeout(proximaConsulta);return}
+  programarConsulta(0);
+});
+actualizar();
 </script></body></html>
 )HTML";
 // Escapa textos para construir el JSON.
@@ -415,7 +432,8 @@ String seguro(String s) {
 }
 // Entrega el estado actual a la pagina web.
 void estadoWeb() {
-  String j="{\"ip\":\""+WiFi.softAPIP().toString()+"\"";
+  String j; j.reserve(640);
+  j="{\"ip\":\""+WiFi.softAPIP().toString()+"\"";
   j+=",\"microfono\":"+String(microON?"true":"false");
   j+=",\"inicioListo\":"+String(inicioListo?"true":"false");
   j+=",\"tono\":"+String(tono?"true":"false");
@@ -423,9 +441,6 @@ void estadoWeb() {
   j+=",\"transmitiendo\":"+String(txON?"true":"false");
   j+=",\"clientes\":"+String(WiFi.softAPgetStationNum());
   j+=",\"nivel\":"+String(energia,2)+",\"umbral\":"+String(umbral,2);
-  j+=",\"adc\":"+String(adcMedio)+",\"amplitud\":"+String(amplitud);
-  j+=",\"pulsoMicro\":"+String(duracionMicro);
-  j+=",\"descartados\":"+String(pulsosDescartados);
   j+=",\"duracion\":"+String(duracion);
   j+=",\"textoBoton\":\""+seguro(textoB)+"\",\"textoSonido\":\""+seguro(textoM)+"\"";
   j+=",\"morseBoton\":\""+secB+"\",\"morseSonido\":\""+secM+"\"";
@@ -540,7 +555,8 @@ void setup() {
   Serial.println(ok?"WiFi iniciado":"ERROR WiFi");
   Serial.println("SSID: "+String(WIFI));
   Serial.println("IP: "+WiFi.softAPIP().toString());
-  iniciarWeb(); inicioListo = !ok;
+  iniciarWeb(); inicioListo = false;
+  if (!ok) faseArranque = 255;
   momentoArranque = millis();
   if (ok) Serial.println("[INICIO] WiFi y web iniciados. Preparando dos pitidos y microfono...");
   else Serial.println("[INICIO] WiFi fallo: microfono desactivado; revisar AP.");
@@ -573,7 +589,7 @@ void loop() {
      ahora-ultimoBuzzer>=SILENCIO_BUZZER)
     pausa(secM,textoM,espacioM,ultimoTono,PALABRA_MIC,ahora);
   static unsigned long diagnosticoMIC = 0;
-  if (ahora - diagnosticoMIC >= 1500) {
+  if (DIAGNOSTICO_DETALLADO && ahora - diagnosticoMIC >= 1500) {
     diagnosticoMIC = ahora;
     int adcInstantaneo = analogRead(MIC); bool pausaBuzzer = ahora - ultimoBuzzer < SILENCIO_BUZZER;
     const char* motivo = !microON ? "APAGADO" :
@@ -586,7 +602,7 @@ void loop() {
                   botonON ? "PRESIONADO" : "LIBRE", txON ? "SI" : "NO");
   }
   static unsigned long revision=0;
-  if(ahora-revision>=5000){
+  if(ahora-revision>=15000){
     revision=ahora;
     Serial.print("Clientes WiFi: ");
     Serial.println(WiFi.softAPgetStationNum());
