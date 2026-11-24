@@ -1,16 +1,22 @@
+// BIBLIOTECAS: conexion Wi-Fi, servidor web y calculos matematicos.
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <math.h>
+// PINES DEL NODEMCU: D6=GPIO12 (boton), D4=GPIO2 (LED), D5=GPIO14 (buzzer), A0 (microfono).
 #define BOTON 12
 #define LED 2
 #define BUZZER 14
 #define MIC A0
+// RED WI-FI: nombre y clave del punto de acceso que crea el ESP8266.
 const char* WIFI = "MorseLab-WIFI";
 const char* CLAVE = "morsemorse";
+// AUDIO: frecuencias del microfono y buzzer; cantidad y velocidad de muestras.
 const int FREQ_MIC = 1500, FREQ_BUZZER = 2500, N = 80; const float FS = 4000.0f;
+// TIEMPOS MORSE (ms): duracion de punto/raya y pausas entre letras y palabras.
 const unsigned long UNIDAD = 150; const unsigned long RAYA_BOTON = 300; const unsigned long RAYA_MIC = 300;
 const unsigned long LETRA_BOTON = 550; const unsigned long PALABRA_BOTON = 1400;
 const unsigned long LETRA_MIC = 460; const unsigned long PALABRA_MIC = 2100;
+// DETECCION DE AUDIO: umbrales, filtros y tiempos para evitar falsas lecturas.
 const unsigned long SILENCIO_BUZZER = 300;
 const bool DIAGNOSTICO_DETALLADO = false; // Cambiar a true solo para diagnosticar A0.
 ESP8266WebServer server(80); float energia = 0, umbral = 8.0f; const float UMBRAL_APAGADO = 3.5f;
@@ -18,17 +24,22 @@ const unsigned long CONFIRMAR_INICIO_MS = 25; const unsigned long CONFIRMAR_SILE
 const unsigned long PULSO_MIN_MS = 70; const unsigned long PULSO_MAX_MS = 650; float picoPulso = 0;
 unsigned long inicioCandidato = 0, silencioCandidato = 0; unsigned long ultimoCambioMuestra = 0;
 unsigned int pulsosDescartados = 0; int adcMin = 1023, adcMax = 0, adcMedio = 0, amplitud = 0;
+// ESTADOS: indican si estan activos el microfono, el boton, el buzzer y la transmision.
 bool microON = false, tono = false, botonON = false;
 bool botonAnterior = false, txON = false, txSonando = false; bool espacioB = true, espacioM = true;
+// MARCAS DE TIEMPO: registran inicio, final y duracion de pulsos y transmisiones.
 int positivos = 0, negativos = 0; unsigned long inicioTono = 0, ultimoTono = 0, inicioBoton = 0;
 unsigned long ultimoBoton = 0, cambioBoton = 0, duracion = 0; unsigned long siguienteTX = 0, ultimaMuestra = 0;
 unsigned long duracionMicro = 0; unsigned long ultimoBuzzer = 0; bool bloqueoBotonTX = false;
+// CONTROLES ESPECIALES: pulsacion de 5 s y avisos sonoros de activacion.
 const unsigned long PULSACION_LARGA_MS = 5000; const unsigned long BUZZER_MANUAL_MAX_MS = 600;
 bool pulsacionLargaAplicada = false; bool buzzerManualSilenciado = false; bool avisoActivo = false;
 uint8_t faseAviso = 0; unsigned long momentoAviso = 0; bool inicioListo = false; uint8_t faseArranque = 0;
 unsigned long momentoArranque = 0;
+// MENSAJES: secB/secM guardan puntos y rayas; textoB/textoM, letras; colaTX, Morse a transmitir.
 String secB="", secM="", textoB="", textoM="", ultimoB="", ultimoM="";
 String colaTX="";
+// DICCIONARIO MORSE: cada posicion de letras[] coincide con la de codigos[].
 const char letras[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const char* codigos[] = {
   ".-","-...","-.-.","-..",".","..-.","--.","....","..",".---",
@@ -37,20 +48,20 @@ const char* codigos[] = {
   "-----",".----","..---","...--","....-",".....",
   "-....","--...","---..","----."
 };
-// Devuelve el codigo Morse de una letra.
+// CODIFICAR: busca una letra o numero y devuelve sus puntos y rayas.
 String codificar(char c) {
   c = toupper((unsigned char)c);
   for (int i = 0; i < 36; i++)
     if (letras[i] == c) return codigos[i];
   return "";
 }
-// Convierte una secuencia Morse en un caracter.
+// DECODIFICAR: busca una secuencia de puntos y rayas y devuelve el caracter.
 char decodificar(String s) {
   for (int i = 0; i < 36; i++)
     if (s == codigos[i]) return letras[i];
   return '?';
 }
-// Convierte texto a una secuencia Morse.
+// CONVERTIR: recorre un texto y construye el Morse completo separando letras y palabras.
 String convertir(String texto) {
   texto.toUpperCase();
   String salida = "";
@@ -67,13 +78,13 @@ String convertir(String texto) {
   }
   return salida;
 }
-// Anade un punto o una raya recibidos.
+// AGREGAR: suma un punto o una raya a la secuencia recibida.
 void agregar(String &sec, bool punto) {
   if (sec.length() >= 12) sec = "";
   sec += punto ? "." : "-";
   Serial.println(punto ? "[RX] PUNTO" : "[RX] RAYA");
 }
-// Decodifica una letra y la suma al mensaje.
+// FINALIZAR: convierte la secuencia completa en una letra y la agrega al mensaje.
 void finalizar(String &sec, String &texto, String &ultimo) {
   if (!sec.length()) return;
   ultimo = sec;
@@ -83,7 +94,7 @@ void finalizar(String &sec, String &texto, String &ultimo) {
   Serial.println("[RX] " + sec + " -> " + String(c));
   sec = "";
 }
-// Agrega un espacio al terminar una palabra.
+// PAUSA: agrega un espacio cuando paso suficiente tiempo sin recibir señales.
 void pausa(String &sec, String &texto, bool &espacio,
            unsigned long ultimo, unsigned long limite,
            unsigned long ahora) {
@@ -94,8 +105,9 @@ void pausa(String &sec, String &texto, bool &espacio,
     espacio = true;
   }
 }
+// GOERTZEL: prepara los datos y detecta la energia del tono de 1500 Hz en A0.
 float ventanaGoertzel[N]; float coefGoertzel = 0;
-// Precalcula los coeficientes del detector de audio.
+// PREPARAR GOERTZEL: calcula los coeficientes que usara el detector de sonido.
 void prepararGoertzel() {
   const float omega = 2.0f * PI * FREQ_MIC / FS;
   coefGoertzel = 2.0f * cosf(omega);
@@ -103,7 +115,7 @@ void prepararGoertzel() {
     ventanaGoertzel[i] = 0.5f - 0.5f * cosf(2.0f * PI * i / (N - 1));
   }
 }
-// Mide la energia del tono de 1500 Hz en A0.
+// GOERTZEL: toma muestras del microfono y calcula la energia del tono buscado.
 float goertzel() {
   float muestras[N], media = 0; int minimo = 1023, maximo = 0;
   unsigned long t = micros();
@@ -122,14 +134,14 @@ float goertzel() {
   float potencia = q1*q1 + q2*q2 - coefGoertzel*q1*q2;
   return 4.0f * sqrtf(fmaxf(0.0f, potencia)) / N;
 }
-// Restablece la deteccion del microfono.
+// REINICIAR MICRO: limpia los estados y datos de la deteccion anterior.
 void reiniciarMicro() {
   tono = false; positivos = negativos = 0; energia = 0; adcMin = 1023; adcMax = 0; adcMedio = 0; amplitud = 0;
   duracionMicro = 0; inicioCandidato = silencioCandidato = 0; picoPulso = 0;
   secM = "";
   digitalWrite(LED, HIGH);
 }
-// Reconoce tonos y silencios recibidos.
+// LEER MICRO: detecta sonidos validos y decide si son puntos o rayas.
 void leerMicro() {
   if (!microON || txON || botonON || bloqueoBotonTX || avisoActivo ||
       millis() - ultimoBuzzer < SILENCIO_BUZZER) return;
@@ -182,7 +194,7 @@ void leerMicro() {
     }
   }
 }
-// Inicia los dos pitidos de confirmacion.
+// INICIAR AVISO MICRO: comienza los dos pitidos de confirmacion.
 void iniciarAvisoMicro() {
   if (avisoActivo || txON || !inicioListo) return;
   avisoActivo = true; faseAviso = 0;
@@ -190,7 +202,7 @@ void iniciarAvisoMicro() {
   tone(BUZZER, FREQ_BUZZER);
   digitalWrite(LED, LOW); ultimoBuzzer = momentoAviso;
 }
-// Controla los dos pitidos y el LED sin bloquear.
+// PROCESAR AVISO MICRO: controla los pitidos y el LED usando tiempos.
 void procesarAvisoMicro(unsigned long ahora) {
   if (!avisoActivo) return;
   if (faseAviso == 0 && ahora - momentoAviso >= 110) {
@@ -204,7 +216,7 @@ void procesarAvisoMicro(unsigned long ahora) {
     digitalWrite(LED, HIGH); ultimoBuzzer = ahora; avisoActivo = false;
   }
 }
-// Lee el pulsador y permite alternar el microfono con 5 s.
+// LEER BOTON: distingue puntos/rayas y activa o desactiva el micro con 5 s.
 void leerBoton(unsigned long ahora) {
   bool lectura = digitalRead(BOTON) == LOW;
   if (txON) {
@@ -252,7 +264,7 @@ void leerBoton(unsigned long ahora) {
                   microON ? "ACTIVADO" : "DESACTIVADO");
   }
 }
-// Prepara una transmision Morse desde la web.
+// INICIAR TX: convierte el texto enviado por la web y prepara su transmision.
 void iniciarTX(String texto) {
   texto.trim();
   if (texto.length() > 60) texto = texto.substring(0, 60);
@@ -261,7 +273,7 @@ void iniciarTX(String texto) {
   reiniciarMicro();
   ultimoBuzzer = millis();
 }
-// Transmite el mensaje mediante buzzer sin bloquear.
+// PROCESAR TX: emite el Morse con el buzzer, respetando los tiempos.
 void procesarTX(unsigned long ahora) {
   if (!txON || (long)(ahora - siguienteTX) < 0) return;
   if (txSonando) {
@@ -282,11 +294,13 @@ void procesarTX(unsigned long ahora) {
     siguienteTX = ahora + (c == '/' ? 6 : 2) * UNIDAD;
   }
 }
+// PAGINA WEB: HTML, CSS y JavaScript guardados en memoria de programa (PROGMEM).
 const char WEB[] PROGMEM = R"HTML(
 <!doctype html><html lang="es"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MorseLab ESP8266</title>
 <style>
+/* CSS: estilos visuales de la cabecera, tarjetas, botones y paneles. */
 *{box-sizing:border-box}body{margin:0;background:#f1f5fa;color:#17253c;font:13px Arial,sans-serif}
 header{background:#fff;border-bottom:1px solid #dce4ee}nav{max-width:1370px;margin:auto;min-height:58px;padding:9px 17px;display:flex;align-items:center;justify-content:space-between;gap:14px}
 .logo{font-size:22px;font-weight:800}.logo span{color:#2563eb}.right{display:flex;align-items:center;gap:9px;position:relative}
@@ -316,9 +330,11 @@ textarea{width:100%;min-height:105px;resize:vertical;padding:11px;margin:11px 0;
 .flow-sub{font-size:11px;color:#64748b;margin:9px 0 0}
 .helper{margin-top:auto;font-size:11px;color:#64748b;padding-top:14px}
 footer{text-align:center;color:#94a3b8;padding:15px;font-size:11px}
+/* DISENO RESPONSIVE: adapta las columnas al ancho del celular o pantalla. */
 @media(max-width:900px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.flow-grid{grid-template-columns:1fr}}
 @media(max-width:620px){.grid{grid-template-columns:1fr}main{margin:10px auto}.card{padding:14px}}
 </style></head><body>
+<!-- CABECERA: nombre del proyecto, conexion y panel de informacion. -->
 <header><nav><div class="logo">Morse<span>Lab</span></div><div class="right">
 <span id="conexion" class="status">Conectando...</span>
 <button id="infoBtn" type="button" class="info-button" aria-label="Informacion del sistema" aria-expanded="false" onclick="toggleInfo()">i</button>
@@ -333,6 +349,7 @@ footer{text-align:center;color:#94a3b8;padding:15px;font-size:11px}
 <div class="pop-row"><span>Transmision</span><b id="txEstado">Listo</b></div>
 <div class="pop-row"><span>Umbral</span><b id="umbral">8</b></div>
 </div></div></nav></header>
+<!-- TARJETAS PRINCIPALES: boton, microfono y transmisor Morse. -->
 <main><div class="grid">
 <section class="card">
 <div class="card-head"><h2>Boton manual</h2><button class="secondary small-btn" onclick="limpiar('boton')">Limpiar</button></div>
@@ -361,6 +378,7 @@ footer{text-align:center;color:#94a3b8;padding:15px;font-size:11px}
 <p id="estadoEnvio">Transmisor listo.</p>
 </section>
 </div>
+<!-- FLUJO EN VIVO: muestra de forma grafica que parte del sistema esta activa. -->
 <section class="flow-panel" aria-label="Flujo del sistema">
 <div class="flow-title">Flujo del sistema en vivo</div>
 <div class="flow-grid">
@@ -372,20 +390,24 @@ footer{text-align:center;color:#94a3b8;padding:15px;font-size:11px}
 </section>
 </main><footer>MorseLab - ESP8266</footer>
 <script>
+// JAVASCRIPT: controla la interaccion y actualiza los datos sin recargar la pagina.
 const $=id=>document.getElementById(id),abc="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const dic=[".-","-...","-.-.","-..",".","..-.","--.","....","..",".---","-.-",".-..","--","-.","---",".--.","--.-",".-.","...","-","..-","...-",".--","-..-","-.--","--..","-----",".----","..---","...--","....-",".....","-....","--...","---..","----."];
 let micro=true,ocupado=false,actualizando=false,listo=false;
 function toggleInfo(){let p=$("infoPanel");p.hidden=!p.hidden;$("infoBtn").setAttribute("aria-expanded",String(!p.hidden))}
 document.addEventListener("click",e=>{if(!e.target.closest(".right")&&!$("infoPanel").hidden)toggleInfo()});
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("infoPanel").hidden)toggleInfo()});
+// VISTA PREVIA: convierte a Morse el texto escrito, solo para mostrarlo en pantalla.
 function convertir(t){return t.toUpperCase().trim().split(/\s+/).map(p=>[...p].map(c=>dic[abc.indexOf(c)]||"").filter(Boolean).join(" ")).filter(Boolean).join(" / ")}
 function preview(){$("prev").textContent=convertir($("mensaje").value)||"—"}
 function limpiarEntrada(){$("mensaje").value="";preview()}
+// ACCIONES WEB: enviar texto, encender/apagar microfono y limpiar mensajes.
 async function enviar(){let t=$("mensaje").value.trim();if(!t||ocupado||!listo)return;ocupado=true;
 try{let r=await fetch("/enviar",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:"texto="+encodeURIComponent(t)});$("estadoEnvio").textContent=r.ok?"Mensaje enviado.":await r.text()}
 catch(e){$("estadoEnvio").textContent="Error de conexion"}finally{ocupado=false}}
 async function toggleMicro(){if(!listo)return;try{let r=await fetch("/micro?on="+(micro?0:1));if(r.ok)actualizar()}catch(e){}}
 async function limpiar(tipo){try{let r=await fetch("/limpiar?tipo="+tipo,{method:"POST"});if(!r.ok)throw Error();actualizar()}catch(e){alert("No se pudo limpiar esta seccion")}}
+// ESTADO EN VIVO: consulta /estado y actualiza mensajes, indicadores y botones.
 async function actualizar(){if(actualizando||document.hidden)return;actualizando=true;try{
 const ctrl=new AbortController(), limite=setTimeout(()=>ctrl.abort(),1800);
 let r;
@@ -414,7 +436,7 @@ finally{
   actualizando=false;
   if(!document.hidden)programarConsulta(ultimoEstadoActivo?300:clientesConectados>=2?700:450);
 }}
-// Una sola consulta en curso; se ajusta la frecuencia segun la actividad y clientes.
+// ACTUALIZACIONES: ajusta la frecuencia de consulta segun la actividad y clientes.
 let proximaConsulta=null, ultimoEstadoActivo=false, clientesConectados=1;
 function programarConsulta(ms){clearTimeout(proximaConsulta);proximaConsulta=setTimeout(actualizar,ms)}
 document.addEventListener("visibilitychange",()=>{
@@ -424,13 +446,13 @@ document.addEventListener("visibilitychange",()=>{
 actualizar();
 </script></body></html>
 )HTML";
-// Escapa textos para construir el JSON.
+// SEGURO: prepara cadenas para enviarlas sin romper el formato JSON.
 String seguro(String s) {
   s.replace("\\","\\\\");s.replace("\"","\\\"");
   s.replace("\n"," ");s.replace("\r"," ");
   return s;
 }
-// Entrega el estado actual a la pagina web.
+// ESTADO WEB: responde con un JSON que contiene el estado actual del sistema.
 void estadoWeb() {
   String j; j.reserve(640);
   j="{\"ip\":\""+WiFi.softAPIP().toString()+"\"";
@@ -448,7 +470,7 @@ void estadoWeb() {
   server.sendHeader("Cache-Control","no-store");
   server.send(200,"application/json",j);
 }
-// Inicializa audio y microfono despues del Wi-Fi.
+// PROCESAR ARRANQUE: realiza los pitidos iniciales y luego activa el microfono.
 void procesarArranque() {
   unsigned long ahora = millis();
   switch (faseArranque) {
@@ -485,7 +507,7 @@ void procesarArranque() {
       break;
   }
 }
-// Registra las rutas y arranca el servidor HTTP.
+// INICIAR WEB: registra las rutas /, /estado, /micro, /enviar y /limpiar.
 void iniciarWeb() {
   server.on("/",HTTP_GET,[](){server.send_P(200,"text/html; charset=utf-8",WEB);});
   server.on("/estado",HTTP_GET,estadoWeb);
@@ -537,7 +559,7 @@ void iniciarWeb() {
   server.onNotFound([](){server.send(404,"text/plain","No encontrado");});
   server.begin();
 }
-// Configura el hardware y levanta el punto de acceso.
+// SETUP: se ejecuta una vez; configura pines, Wi-Fi y servidor web.
 void setup() {
   Serial.begin(115200);
   delay(300);
@@ -563,7 +585,7 @@ void setup() {
   ultimoBoton=ultimoTono=cambioBoton=millis(); ultimoBuzzer = millis() - SILENCIO_BUZZER;
   Serial.println("Servidor listo.");
 }
-// Atiende web, entradas, deteccion y transmision.
+// LOOP: se repite continuamente; atiende web, boton, microfono y transmisor.
 void loop() {
   server.handleClient();
   if (!inicioListo) {
