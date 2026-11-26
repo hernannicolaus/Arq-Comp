@@ -4,7 +4,7 @@
 #include <math.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
-// Pines: D6 boton, D4 LED, D5 buzzer y A0 microfono.
+// Pines: pulsador D6, buzzer D5, microfono A0 y LED integrado del ESP8266 (D4).
 #define BOTON 12
 #define LED 2
 #define BUZZER 14
@@ -37,6 +37,9 @@ unsigned int pulsosDescartados = 0; int adcMin = 1023, adcMax = 0, adcMedio = 0,
 // Estados de entrada, recepcion y transmision.
 bool microON = false, tono = false, botonON = false;
 bool botonAnterior = false, txON = false, txSonando = false; bool espacioB = true, espacioM = true;
+// Pausa de transmision: conserva la fase del simbolo y el tiempo restante.
+bool txPausado = false, txPausaSonando = false;
+unsigned long txPausaInicio = 0, txRestante = 0;
 // Contadores y tiempos de los eventos del sistema.
 int positivos = 0, negativos = 0; unsigned long inicioTono = 0, ultimoTono = 0, inicioBoton = 0;
 unsigned long ultimoBoton = 0, cambioBoton = 0, duracion = 0; unsigned long siguienteTX = 0, ultimaMuestra = 0;
@@ -140,9 +143,10 @@ void lcdActualizar(unsigned long ahora) {
 
   if (lcdTXVisible) {
     if (txON || (long)(ahora - lcdTXHasta) < 0) {
+      unsigned long ahoraVisual = txPausado ? txPausaInicio : ahora;
       String morse = lcdTXMorse;
       if (morse.length() > 12) morse = morse.substring(morse.length() - 12);
-      lcdMostrarFilas("TXT:" + lcdVentanaMovil(lcdTXTexto, ahora), "MOR:" + morse);
+      lcdMostrarFilas("TXT:" + lcdVentanaMovil(lcdTXTexto, ahoraVisual), "MOR:" + morse);
       return;
     }
     lcdTXVisible = false;
@@ -405,6 +409,7 @@ void iniciarTX(String texto) {
   texto.trim();
   if (texto.length() > 60) texto = texto.substring(0, 60);
   colaTX = convertir(texto); txON = colaTX.length() > 0; txSonando = false;
+  txPausado = false; txPausaSonando = false; txRestante = 0;
   if (txON) {
     lcdTXTexto = texto;
     lcdTXTexto.toUpperCase();
@@ -418,9 +423,32 @@ void iniciarTX(String texto) {
   reiniciarMicro();
   ultimoBuzzer = millis();
 }
+// Pausa el buzzer y conserva el tiempo pendiente del simbolo o silencio.
+void pausarTX(unsigned long ahora) {
+  if (!txON || txPausado) return;
+  txRestante = (long)(siguienteTX - ahora) > 0 ? siguienteTX - ahora : 0;
+  txPausaSonando = txSonando;
+  txPausado = true;
+  txPausaInicio = ahora;
+  noTone(BUZZER);
+  digitalWrite(LED, HIGH);
+  ultimoBuzzer = ahora;
+}
+// Reanuda la transmision desde el instante exacto en que se pauso.
+void reanudarTX(unsigned long ahora) {
+  if (!txON || !txPausado) return;
+  lcdTXInicio += ahora - txPausaInicio; // Congela tambien el desplazamiento del LCD.
+  siguienteTX = ahora + txRestante;
+  if (txPausaSonando && txRestante > 0) {
+    tone(BUZZER, FREQ_BUZZER);
+    digitalWrite(LED, LOW);
+    ultimoBuzzer = ahora;
+  }
+  txPausado = false;
+}
 // Emite los simbolos Morse y actualiza su progreso en LCD.
 void procesarTX(unsigned long ahora) {
-  if (!txON || (long)(ahora - siguienteTX) < 0) return;
+  if (!txON || txPausado || (long)(ahora - siguienteTX) < 0) return;
   if (txSonando) {
     noTone(BUZZER); ultimoBuzzer = ahora;
     digitalWrite(LED, HIGH); txSonando = false; siguienteTX = ahora + UNIDAD; return;
@@ -524,7 +552,7 @@ footer{text-align:center;color:#94a3b8;padding:15px;font-size:11px}
 <p>Escribi un mensaje para reproducirlo con el buzzer.</p>
 <textarea id="mensaje" maxlength="60" placeholder="HOLA MUNDO" oninput="preview()"></textarea>
 <div class="preview" id="prev">—</div>
-<div class="actions"><button id="enviarBtn" onclick="enviar()" disabled>Transmitir</button><button class="secondary" onclick="limpiarEntrada()">Limpiar</button></div>
+<div class="actions"><button id="enviarBtn" onclick="accionTransmisor()" disabled>Transmitir</button><button class="secondary" onclick="limpiarEntrada()">Limpiar</button></div>
 <p id="estadoEnvio">Transmisor listo.</p>
 </section>
 </div>
@@ -543,7 +571,7 @@ footer{text-align:center;color:#94a3b8;padding:15px;font-size:11px}
 <script>
 const $=id=>document.getElementById(id),abc="ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const dic=[".-","-...","-.-.","-..",".","..-.","--.","....","..",".---","-.-",".-..","--","-.","---",".--.","--.-",".-.","...","-","..-","...-",".--","-..-","-.--","--..","-----",".----","..---","...--","....-",".....","-....","--...","---..","----."];
-let micro=true,ocupado=false,actualizando=false,listo=false;
+let micro=true,ocupado=false,actualizando=false,listo=false,transmitiendo=false,txPausado=false;
 function toggleInfo(){let p=$("infoPanel");p.hidden=!p.hidden;$("infoBtn").setAttribute("aria-expanded",String(!p.hidden))}
 document.addEventListener("click",e=>{if(!e.target.closest(".right")&&!$("infoPanel").hidden)toggleInfo()});
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("infoPanel").hidden)toggleInfo()});
@@ -551,9 +579,21 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("infoPanel").hid
 function convertir(t){return t.toUpperCase().trim().split(/\s+/).map(p=>[...p].map(c=>dic[abc.indexOf(c)]||"").filter(Boolean).join(" ")).filter(Boolean).join(" / ")}
 function preview(){$("prev").textContent=convertir($("mensaje").value)||"—"}
 function limpiarEntrada(){$("mensaje").value="";preview()}
+// Envia, pausa o reanuda segun el estado actual de la transmision.
+async function accionTransmisor(){
+  if(ocupado||!listo)return;
+  if(!transmitiendo){await enviar();return}
+  ocupado=true;
+  try{
+    let r=await fetch(txPausado?"/tx/reanudar":"/tx/pausar",{method:"POST"});
+    if(!r.ok)throw Error(await r.text());
+    await actualizar();
+  }catch(e){$("estadoEnvio").textContent="No se pudo cambiar la pausa: "+e.message}
+  finally{ocupado=false}
+}
 // Solicitudes para transmitir y administrar el sistema.
 async function enviar(){let t=$("mensaje").value.trim();if(!t||ocupado||!listo)return;ocupado=true;
-try{let r=await fetch("/enviar",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:"texto="+encodeURIComponent(t)});$("estadoEnvio").textContent=r.ok?"Mensaje enviado.":await r.text()}
+try{let r=await fetch("/enviar",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:"texto="+encodeURIComponent(t)});$("estadoEnvio").textContent=r.ok?"Transmitiendo mensaje...":await r.text();if(r.ok)actualizar()}
 catch(e){$("estadoEnvio").textContent="Error de conexion"}finally{ocupado=false}}
 async function toggleMicro(){if(!listo)return;try{let r=await fetch("/micro?on="+(micro?0:1));if(r.ok)actualizar()}catch(e){}}
 async function limpiar(tipo){try{let r=await fetch("/limpiar?tipo="+tipo,{method:"POST"});if(!r.ok)throw Error();actualizar()}catch(e){alert("No se pudo limpiar esta seccion")}}
@@ -566,11 +606,13 @@ finally{clearTimeout(limite)}
 let d=await r.json();
 ultimoEstadoActivo=!!(d.tono||d.botonActivo||d.transmitiendo||d.morseSonido||d.morseBoton);
 
-micro=d.microfono;listo=d.inicioListo;
+micro=d.microfono;listo=d.inicioListo;transmitiendo=d.transmitiendo;txPausado=d.txPausado;
 $("conexion").textContent="Conectado";$("ip").textContent=d.ip;
 $("microStat").textContent=!listo?"Iniciando":micro?"Activo":"Apagado";
-$("txEstado").textContent=d.transmitiendo?"Transmitiendo":"Listo";
-$("enviarBtn").disabled=!listo||d.transmitiendo||d.botonActivo;
+$("txEstado").textContent=d.txPausado?"En pausa":d.transmitiendo?"Transmitiendo":"Listo";
+$("enviarBtn").disabled=!listo||ocupado||(!d.transmitiendo&&d.botonActivo);
+$("enviarBtn").textContent=d.txPausado?"Reanudar":d.transmitiendo?"Pausar":"Transmitir";
+if(d.transmitiendo)$("estadoEnvio").textContent=d.txPausado?"Transmision pausada.":"Transmitiendo mensaje...";
 for(let k of ["textoSonido","textoBoton","morseSonido","morseBoton","ultimoSonido","ultimoBoton"])$(k).textContent=d[k]||"—";
 $("umbral").textContent=d.umbral;$("redWifi").textContent=d.red||"—";
 $("barra").style.width=Math.min(100,d.nivel/Math.max(d.umbral*3,1)*100)+"%";
@@ -612,6 +654,7 @@ void estadoWeb() {
   j+=",\"tono\":"+String(tono?"true":"false");
   j+=",\"botonActivo\":"+String(botonON?"true":"false");
   j+=",\"transmitiendo\":"+String(txON?"true":"false");
+  j+=",\"txPausado\":"+String(txPausado?"true":"false");
   j+=",\"nivel\":"+String(energia,2)+",\"umbral\":"+String(umbral,2);
   j+=",\"duracion\":"+String(duracion);
   j+=",\"textoBoton\":\""+seguro(textoB)+"\",\"textoSonido\":\""+seguro(textoM)+"\"";
@@ -711,6 +754,17 @@ void iniciarWeb() {
     if(!s.length()||s.length()>60){server.send(400,"text/plain","Mensaje invalido");return;}
     iniciarTX(s);
     server.send(txON?200:400,"text/plain",txON?"OK":"Sin caracteres compatibles");
+  });
+  // Control remoto de pausa y reanudacion de la transmision.
+  server.on("/tx/pausar",HTTP_POST,[](){
+    if (!txON || txPausado) {server.send(409,"text/plain","No hay transmision activa");return;}
+    pausarTX(millis());
+    server.send(200,"text/plain","PAUSADO");
+  });
+  server.on("/tx/reanudar",HTTP_POST,[](){
+    if (!txON || !txPausado) {server.send(409,"text/plain","No hay transmision pausada");return;}
+    reanudarTX(millis());
+    server.send(200,"text/plain","REANUDADO");
   });
   server.on("/limpiar",HTTP_POST,[](){
     String tipo=server.arg("tipo");
